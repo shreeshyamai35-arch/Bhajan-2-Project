@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Pipeline artifacts / audio outputs
+backend/out/
+backend/sample_vocal.wav
+*.wav
+!**/tests/fixtures/*.wav
+
+# Env / secrets
+.env
+*.local
+
+# OS / editor
+.DS_Store
