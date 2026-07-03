@@ -13,6 +13,7 @@ env/
 
 # Pipeline artifacts / audio outputs
 backend/out/
+backend/data/
 backend/sample_vocal.wav
 *.wav
 !**/tests/fixtures/*.wav
@@ -20,6 +21,11 @@ backend/sample_vocal.wav
 # Env / secrets
 .env
 *.local
+
+# Server / scratch
+backend/server.log
+*.webm
+*.log
 
 # OS / editor
 .DS_Store

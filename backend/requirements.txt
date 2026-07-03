@@ -1,7 +1,15 @@
+# --- core audio pipeline (runs offline) ---
 numpy>=1.24
 soundfile>=0.12
 pyloudnorm>=0.1.1
-# Optional (auto-used if installed): tempo/key detection
-librosa>=0.10 ; python_version >= "3.10"
-# Real music generation (only needed when GEMINI_API_KEY is set)
-google-genai>=0.3 ; python_version >= "3.10"
+imageio-ffmpeg>=0.4          # bundled ffmpeg for decoding browser/mp3/m4a audio
+
+# --- web app (Phase 3) ---
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+
+# --- optional ---
+librosa>=0.10 ; python_version >= "3.10"   # better tempo/key detection
+requests>=2.31                              # convenience (stdlib urllib also used)
+pytest>=7.0                                 # tests

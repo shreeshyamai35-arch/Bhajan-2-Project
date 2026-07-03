@@ -37,8 +37,10 @@ def run_qc(stereo: np.ndarray, output_lufs: float, expected_duration_s: float,
     metrics: dict[str, float] = {}
     failures: list[str] = []
 
-    # Loudness on target
-    lufs_ok = abs(output_lufs - TARGET_LUFS) <= LUFS_TOLERANCE
+    # Loudness on target. Cast everything to plain Python types so the report
+    # is JSON-serialisable (numpy scalars are not).
+    output_lufs = float(output_lufs)
+    lufs_ok = bool(abs(output_lufs - TARGET_LUFS) <= LUFS_TOLERANCE)
     checks["loudness_-14_LUFS"] = lufs_ok
     metrics["output_lufs"] = round(output_lufs, 2)
     if not lufs_ok:
@@ -46,8 +48,8 @@ def run_qc(stereo: np.ndarray, output_lufs: float, expected_duration_s: float,
 
     # No clipping
     peak = float(np.max(np.abs(stereo))) if stereo.size else 0.0
-    peak_dbfs = 20.0 * np.log10(peak) if peak > 0 else float("-inf")
-    peak_ok = peak_dbfs <= MAX_PEAK_DBFS
+    peak_dbfs = float(20.0 * np.log10(peak)) if peak > 0 else float("-inf")
+    peak_ok = bool(peak_dbfs <= MAX_PEAK_DBFS)
     checks["no_clipping"] = peak_ok
     metrics["peak_dbfs"] = round(peak_dbfs, 2)
     if not peak_ok:
@@ -56,15 +58,15 @@ def run_qc(stereo: np.ndarray, output_lufs: float, expected_duration_s: float,
     # Not mostly silent
     mono = stereo.mean(axis=0) if stereo.ndim == 2 else stereo
     active_ratio = float(np.mean(np.abs(mono) > 0.005)) if mono.size else 0.0
-    active_ok = active_ratio >= MIN_ACTIVE_RATIO
+    active_ok = bool(active_ratio >= MIN_ACTIVE_RATIO)
     checks["not_silent"] = active_ok
     metrics["active_ratio"] = round(active_ratio, 3)
     if not active_ok:
         failures.append(f"only {active_ratio:.0%} active audio")
 
     # Duration sanity (tempo-lock proxy: output matches the sung length)
-    dur = (mono.size / sr) if mono.size else 0.0
-    dur_ok = abs(dur - expected_duration_s) <= 0.5
+    dur = float(mono.size / sr) if mono.size else 0.0
+    dur_ok = bool(abs(dur - expected_duration_s) <= 0.5)
     checks["duration_matches_vocal"] = dur_ok
     metrics["duration_s"] = round(dur, 2)
     if not dur_ok:
@@ -72,5 +74,5 @@ def run_qc(stereo: np.ndarray, output_lufs: float, expected_duration_s: float,
             f"duration {dur:.2f}s vs expected {expected_duration_s:.2f}s"
         )
 
-    passed = all(checks.values())
+    passed = bool(all(checks.values()))
     return QCReport(passed=passed, checks=checks, metrics=metrics, failures=failures)

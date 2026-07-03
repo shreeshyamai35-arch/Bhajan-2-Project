@@ -15,52 +15,76 @@ automated **quality gate** (loudness, clipping, tempo-lock, pronunciation).
 
 ## Status
 
-**Phase 1 — core pipeline (this repo).** Runs end-to-end today, offline, with a
-built-in **mock instrumental** so you can test without any API key. Add a
-`GEMINI_API_KEY` to switch to the real Lyria 3 Pro instrumental — nothing else
-changes downstream.
+**Phases 1–3 complete and verified.**
+- **Phase 1** — core audio pipeline (align → mix → master → QC)
+- **Phase 2** — agentic orchestration (job state machine + agents + human gates)
+- **Phase 3** — web app (browser: record/upload → pick instrumental → download)
 
-Verified: sample run masters to exactly **-14.0 LUFS**, no clipping, QC pass.
+Runs end-to-end **today, offline**, via a built-in **mock instrumental** so the
+whole product is testable without any API key. Set an API key to switch to real
+**Lyria 3 Pro** — nothing else changes downstream.
 
-## Quick start
+Verified: full flow masters to exactly **-14.0 LUFS**, no clipping, QC pass;
+browser audio (webm/opus) is transcoded via bundled ffmpeg.
+
+### Live API status (important)
+
+The Lyria integration is wired to the official Google endpoint
+(`generativelanguage.googleapis.com/v1beta/interactions`, `x-goog-api-key`
+auth). A valid key authenticates, **but Lyria music generation requires a
+billing-enabled / paid tier** — a free-tier key returns HTTP **429 "not enough
+quota"**, and the app cleanly **falls back to the mock** instrumental. Enable
+Lyria billing on your Google account to get live AI audio; no code change
+needed.
+
+## Run the web app
 
 ```bash
 cd backend
 uv venv --python 3.11 .venv && . .venv/bin/activate
-uv pip install numpy soundfile pyloudnorm pytest   # core (runs offline)
+uv pip install -r requirements.txt
 
-# 1) make a throwaway synthetic "vocal" to test with
-python scripts/make_sample_vocal.py sample_vocal.wav
+# optional: real Lyria (needs billing-enabled key)
+export BHAJAN_API_KEY="your-google-api-key"
 
-# 2) produce a bhajan from it
-python -m bhajan_studio.cli \
-  --vocal sample_vocal.wav \
-  --lyrics "Jai Shyam, Radhe Govind, Krishna Murari" \
-  --bpm 90 --key C --taal keherwa --title "Shyam Bhajan" --out out
-
-# 3) result: out/Shyam_Bhajan_master.wav  (mastered to -14 LUFS)
+uvicorn bhajan_studio.web.app:app --host 0.0.0.0 --port 8000
+# open http://localhost:8000  → record/upload a vocal, pick an instrumental,
+# approve, download the mastered bhajan.
 ```
 
-Run the tests:
+## Run the CLI (no browser)
+
+```bash
+cd backend && . .venv/bin/activate
+python scripts/make_sample_vocal.py sample_vocal.wav        # test input
+python -m bhajan_studio.cli --vocal sample_vocal.wav \
+  --lyrics "Jai Shyam, Radhe Govind" --bpm 90 --key C \
+  --taal keherwa --title "Shyam Bhajan" --out out
+# -> out/Shyam_Bhajan_master.wav (mastered to -14 LUFS)
+```
+
+## Tests
 
 ```bash
 cd backend && . .venv/bin/activate && python -m pytest -v
 ```
+Covers phonetics, mastering to -14 LUFS, the full pipeline, and the full web
+flow (create → candidates → select → finalize → approve → download).
 
-## Using the real Lyria 3 Pro instrumental
+## API endpoints
 
-1. Get a Google **Gemini API key** with Lyria access
-   (Google AI Studio / Vertex AI).
-2. Install the SDK and set the key:
-   ```bash
-   uv pip install google-genai
-   export GEMINI_API_KEY="your-key"
-   ```
-3. Run the same CLI. The instrumental now comes from Lyria 3 Pro
-   (`instrumental source : lyria`). If the call fails for any reason, the
-   pipeline automatically falls back to the mock so it never hard-fails.
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/health` | Mode (lyria/mock) + live Lyria probe |
+| POST | `/api/jobs` | Create job (multipart: vocal + lyrics/bpm/key/taal/title) |
+| GET | `/api/jobs/{id}` | Job status + stage logs + QC |
+| GET | `/api/jobs/{id}/candidates/{i}` | Preview a candidate instrumental |
+| POST | `/api/jobs/{id}/select` | Pick a candidate (human gate) → finalize |
+| POST | `/api/jobs/{id}/approve` | Approve the master (human gate) |
+| GET | `/api/jobs/{id}/download` | Download the final WAV |
 
-> Note: Lyria audio carries an inaudible **SynthID** watermark.
+> Note: Lyria audio carries an inaudible **SynthID** watermark. Never commit
+> API keys — use `BHAJAN_API_KEY` (see `backend/.env.example`).
 
 ## How it works (pipeline stages)
 
@@ -85,24 +109,29 @@ Orchestrated by `bhajan_studio/orchestrator.py`; CLI in `bhajan_studio/cli.py`.
 backend/
   bhajan_studio/
     config.py            # constants + BhajanSpec
-    orchestrator.py      # runs the stages, returns a logged result
+    orchestrator.py      # Phase 1 CLI pipeline (single-shot)
     cli.py               # command-line entry point
     prompts/             # phonetics + Lyria prompt builder
-    lyria/               # Lyria client with mock fallback
-    audio/               # io, analysis, align, mix, master, qc
+    lyria/               # Lyria REST client with mock fallback
+    audio/               # io (ffmpeg decode), analysis, align, mix, master, qc
+    jobs/                # Phase 2: Job model + state machine + runner (agents)
+    web/                 # Phase 3: FastAPI app + static browser frontend
   scripts/               # make_sample_vocal.py (test input)
-  tests/                 # end-to-end + unit tests
+  tests/                 # pipeline + web end-to-end tests
+  .env.example           # how to supply BHAJAN_API_KEY (never commit real keys)
 .kiro/skills/bhajan-production/  # the production knowledge (Kiro skill)
 AGENTIC_BUILD_PLAN.md    # full architecture + phased roadmap
 ```
 
 ## Roadmap
 
-Phase 1 core (done) → Phase 2 agentic orchestration (resumable + human gates)
-→ Phase 3 web app (Next.js + FastAPI) → Phase 4 scale/auth → Phase 5 deploy.
+Phase 1 core ✅ → Phase 2 agentic orchestration ✅ → Phase 3 web app ✅ →
+Phase 4 scale/auth/cloud storage → Phase 5 deploy (Cloud Run + Vercel/static).
 See [`AGENTIC_BUILD_PLAN.md`](AGENTIC_BUILD_PLAN.md).
 
 ## Dependencies
 
-- Core (runs offline): `numpy`, `soundfile`, `pyloudnorm`
-- Optional: `librosa` (better tempo/key detection), `google-genai` (real Lyria)
+- Core (offline): `numpy`, `soundfile`, `pyloudnorm`, `imageio-ffmpeg`
+- Web: `fastapi`, `uvicorn`, `python-multipart`
+- Optional: `librosa` (better tempo/key detection)
+- Real music: a **billing-enabled** Google API key (Lyria 3 Pro)

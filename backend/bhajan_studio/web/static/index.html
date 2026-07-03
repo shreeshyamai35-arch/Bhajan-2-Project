@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bhajan Studio</title>
+<style>
+  :root { --bg:#1a1025; --card:#251633; --accent:#ffb347; --accent2:#ff7e5f;
+          --text:#f4eefb; --muted:#b7a9c9; --ok:#4ade80; --bad:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif;
+         background:linear-gradient(160deg,#1a1025,#2a1840); color:var(--text); }
+  header { text-align:center; padding:28px 16px 8px; }
+  header h1 { margin:0; font-size:26px; letter-spacing:.5px; }
+  header p { color:var(--muted); margin:6px 0 0; font-size:14px; }
+  .wrap { max-width:760px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border-radius:14px; padding:20px;
+          margin:14px 0; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  input, textarea, select { width:100%; padding:10px; border-radius:8px;
+          border:1px solid #3d2b52; background:#1d1330; color:var(--text); font-size:14px; }
+  textarea { min-height:70px; resize:vertical; }
+  .row { display:flex; gap:10px; } .row > div { flex:1; }
+  button { cursor:pointer; border:none; border-radius:9px; padding:11px 16px;
+           font-size:14px; font-weight:600; color:#241; 
+           background:linear-gradient(90deg,var(--accent),var(--accent2)); }
+  button.secondary { background:#3a2952; color:var(--text); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .btns { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px;
+          background:#3a2952; color:var(--muted); }
+  .pill.live { background:#14532d; color:#bbf7d0; }
+  .pill.mock { background:#4a3410; color:#fde68a; }
+  .steps { list-style:none; padding:0; margin:0; font-size:13px; }
+  .steps li { padding:5px 0; border-bottom:1px solid #33234a; display:flex; justify-content:space-between; }
+  .cand { display:flex; align-items:center; gap:10px; padding:8px 0; }
+  .muted { color:var(--muted); font-size:13px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  audio { width:100%; margin-top:6px; }
+  .hidden { display:none; }
+  .rec-dot { width:10px; height:10px; border-radius:50%; background:var(--bad);
+             display:inline-block; margin-right:6px; animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.2; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪕 Bhajan Studio</h1>
+  <p>Record your vocal &mdash; AI builds the music around your real voice.</p>
+  <div id="mode" class="pill">checking&hellip;</div>
+</header>
+
+<div class="wrap">
+  <!-- Step 1: input -->
+  <div class="card" id="inputCard">
+    <h3>1. Your bhajan</h3>
+    <label>Title</label>
+    <input id="title" value="My Shyam Bhajan" />
+    <label>Lyrics (pronunciation is auto-corrected: Shyam &rarr; Shyaam)</label>
+    <textarea id="lyrics">Jai Shyam, Radhe Govind, Krishna Murari</textarea>
+    <div class="row">
+      <div><label>BPM</label><input id="bpm" type="number" value="90" /></div>
+      <div><label>Key</label>
+        <select id="key">
+          <option>C</option><option>C#</option><option>D</option><option>D#</option>
+          <option>E</option><option>F</option><option>F#</option><option>G</option>
+          <option>G#</option><option>A</option><option>A#</option><option>B</option>
+        </select></div>
+      <div><label>Taal</label>
+        <select id="taal"><option>keherwa</option><option>dadra</option><option>bhajani</option></select></div>
+    </div>
+
+    <label>Vocal &mdash; record or upload (sing to a steady beat!)</label>
+    <div class="btns">
+      <button id="recBtn" type="button">● Record</button>
+      <button id="stopBtn" type="button" class="secondary hidden">■ Stop</button>
+      <input id="file" type="file" accept="audio/*" style="flex:2" />
+    </div>
+    <div id="recStatus" class="muted" style="margin-top:8px"></div>
+    <audio id="vocalPreview" class="hidden" controls></audio>
+
+    <div class="btns">
+      <button id="submitBtn" type="button">Create Bhajan →</button>
+    </div>
+  </div>
+
+  <!-- Step 2: progress -->
+  <div class="card hidden" id="progressCard">
+    <h3>2. Production pipeline <span id="statePill" class="pill"></span></h3>
+    <ul class="steps" id="steps"></ul>
+    <div id="notes" class="muted" style="margin-top:10px"></div>
+  </div>
+
+  <!-- Step 3: candidates -->
+  <div class="card hidden" id="candCard">
+    <h3>3. Pick the instrumental you like</h3>
+    <div id="cands"></div>
+  </div>
+
+  <!-- Step 4: final -->
+  <div class="card hidden" id="finalCard">
+    <h3>4. Final bhajan</h3>
+    <div id="qc" class="muted"></div>
+    <audio id="finalPreview" controls></audio>
+    <div class="btns">
+      <button id="approveBtn" type="button">Approve</button>
+      <a id="downloadLink" href="#"><button class="secondary" type="button">Download WAV</button></a>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let mediaRecorder, chunks = [], recordedBlob = null, jobId = null, poll = null;
+
+// --- health / mode badge ---
+fetch('/api/health').then(r => r.json()).then(h => {
+  const el = $('mode');
+  if (h.mode === 'lyria' && h.lyria.ok) { el.textContent = 'Live: Lyria 3 Pro'; el.className = 'pill live'; }
+  else if (h.mode === 'lyria') { el.textContent = 'Lyria key set, no quota → mock'; el.className = 'pill mock'; }
+  else { el.textContent = 'Mock instrumental mode'; el.className = 'pill mock'; }
+}).catch(() => {});
+
+// --- recording ---
+$('recBtn').onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    chunks = [];
+    mediaRecorder.ondataavailable = e => chunks.push(e.data);
+    mediaRecorder.onstop = () => {
+      recordedBlob = new Blob(chunks, { type: mediaRecorder.mimeType });
+      const url = URL.createObjectURL(recordedBlob);
+      $('vocalPreview').src = url; $('vocalPreview').classList.remove('hidden');
+      $('recStatus').textContent = 'Recorded ✓';
+      stream.getTracks().forEach(t => t.stop());
+    };
+    mediaRecorder.start();
+    $('recBtn').classList.add('hidden'); $('stopBtn').classList.remove('hidden');
+    $('recStatus').innerHTML = '<span class="rec-dot"></span>recording…';
+  } catch (e) { $('recStatus').textContent = 'Mic error: ' + e.message; }
+};
+$('stopBtn').onclick = () => {
+  mediaRecorder && mediaRecorder.stop();
+  $('stopBtn').classList.add('hidden'); $('recBtn').classList.remove('hidden');
+};
+$('file').onchange = () => {
+  if ($('file').files[0]) { recordedBlob = null; $('recStatus').textContent = 'File selected: ' + $('file').files[0].name; }
+};
+
+// --- submit ---
+$('submitBtn').onclick = async () => {
+  const fd = new FormData();
+  let vocal = $('file').files[0] || (recordedBlob && new File([recordedBlob], 'vocal.webm', {type: recordedBlob.type}));
+  if (!vocal) { alert('Record or upload a vocal first.'); return; }
+  fd.append('vocal', vocal);
+  fd.append('title', $('title').value);
+  fd.append('lyrics', $('lyrics').value);
+  fd.append('bpm', $('bpm').value);
+  fd.append('key', $('key').value);
+  fd.append('taal', $('taal').value);
+  $('submitBtn').disabled = true; $('submitBtn').textContent = 'Uploading…';
+  const res = await fetch('/api/jobs', { method: 'POST', body: fd });
+  const job = await res.json();
+  jobId = job.id;
+  $('progressCard').classList.remove('hidden');
+  poll = setInterval(refresh, 900);
+};
+
+// --- polling / render ---
+async function refresh() {
+  const job = await (await fetch('/api/jobs/' + jobId)).json();
+  $('statePill').textContent = job.state;
+  $('steps').innerHTML = job.logs.map(l =>
+    `<li><span>${l.ok ? '✅' : '❌'} ${l.name}</span><span class="muted">${l.detail}</span></li>`).join('');
+  $('notes').innerHTML = (job.notes || []).map(n => '• ' + n).join('<br>');
+
+  if (job.state === 'candidates_ready') renderCandidates(job);
+  if (job.state === 'awaiting_approval' || job.state === 'delivered' || job.state === 'qc_failed') renderFinal(job);
+  if (['delivered','error','qc_failed'].includes(job.state)) { /* keep polling light */ }
+}
+
+function renderCandidates(job) {
+  $('candCard').classList.remove('hidden');
+  if ($('cands').dataset.done) return;
+  $('cands').dataset.done = '1';
+  $('cands').innerHTML = job.candidates.map(c => `
+    <div class="cand">
+      <div style="flex:1">
+        <b>Option ${c.index + 1}</b> <span class="pill ${c.source==='lyria'?'live':'mock'}">${c.source}</span>
+        <audio controls src="/api/jobs/${job.id}/candidates/${c.index}"></audio>
+      </div>
+      <button type="button" onclick="pick(${c.index})">Use this</button>
+    </div>`).join('');
+}
+
+async function pick(i) {
+  const fd = new FormData(); fd.append('index', i);
+  await fetch('/api/jobs/' + jobId + '/select', { method: 'POST', body: fd });
+  $('finalCard').classList.remove('hidden');
+}
+
+function renderFinal(job) {
+  $('finalCard').classList.remove('hidden');
+  const qc = job.qc || {};
+  const cls = qc.passed ? 'ok' : 'bad';
+  $('qc').innerHTML = `QC: <span class="${cls}">${qc.passed ? 'PASS' : 'FAIL'}</span> — ` +
+    `loudness ${qc.metrics?.output_lufs} LUFS, peak ${qc.metrics?.peak_dbfs} dBFS, ${qc.metrics?.duration_s}s`;
+  if (job.has_master) {
+    $('finalPreview').src = '/api/jobs/' + job.id + '/download?t=' + Date.now();
+    $('downloadLink').href = '/api/jobs/' + job.id + '/download';
+  }
+  $('approveBtn').disabled = (job.state !== 'awaiting_approval');
+  $('approveBtn').textContent = job.state === 'delivered' ? 'Approved ✓' : 'Approve';
+}
+
+$('approveBtn').onclick = async () => {
+  await fetch('/api/jobs/' + jobId + '/approve', { method: 'POST' });
+  refresh();
+};
+</script>
+</body>
+</html>

@@ -6,6 +6,8 @@ no external ffmpeg is required for the core pipeline.
 """
 from __future__ import annotations
 
+import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -13,14 +15,48 @@ import soundfile as sf
 
 from ..config import SAMPLE_RATE
 
+# Formats libsndfile (soundfile) reads directly. Anything else (webm/opus from
+# browser MediaRecorder, mp3, m4a, ...) is transcoded via ffmpeg first.
+_SF_NATIVE = {".wav", ".flac", ".ogg", ".oga", ".aiff", ".aif", ".aifc"}
+
 
 def load_mono(path: str | Path, target_sr: int = SAMPLE_RATE) -> np.ndarray:
-    """Load an audio file as mono float32 at target_sr (naive resample)."""
+    """Load any audio file as mono float32 at target_sr.
+
+    Directly reads WAV/FLAC/OGG via soundfile; transcodes other formats
+    (browser webm/opus, mp3, m4a) to WAV with ffmpeg first.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in _SF_NATIVE:
+        path = Path(_transcode_to_wav(path, target_sr))
     data, sr = sf.read(str(path), dtype="float32", always_2d=True)
     mono = data.mean(axis=1)
     if sr != target_sr:
         mono = _resample_linear(mono, sr, target_sr)
     return mono.astype(np.float32)
+
+
+def _ffmpeg_exe() -> str:
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"  # fall back to a system ffmpeg on PATH
+
+
+def _transcode_to_wav(src: Path, sr: int) -> str:
+    """Convert an arbitrary audio file to a temp mono WAV via ffmpeg."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp.close()
+    cmd = [_ffmpeg_exe(), "-y", "-i", str(src), "-ac", "1", "-ar", str(sr),
+           "-f", "wav", tmp.name]
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg failed to decode {src.name}: "
+            f"{proc.stderr.decode('utf-8', 'ignore')[-300:]}"
+        )
+    return tmp.name
 
 
 def _resample_linear(x: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
